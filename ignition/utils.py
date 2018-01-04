@@ -168,7 +168,7 @@ def forward(model, layers, input_tensor):
     for layer in layers:
         handle = layer.register_forward_hook(lambda module, inp, out: outs.append(out))
         handles.append(handle)
-    output = model.forward(make_var(input_tensor))
+    output = model.forward(make_var(input_tensor, volatile=True))
     unregister_hooks(handles)
     return outs
 

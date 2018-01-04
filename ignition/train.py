@@ -125,7 +125,7 @@ def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True):
     ----------
     model: nn.Module
         The model to evaluate.
-    eval_fn: function 
+    eval_fn: callable 
         The function that evaluates a single batch. This function takes the
         following arguments:
             `model_to_eval`: the value from self.model
@@ -273,7 +273,7 @@ class Trainer:
         model: nn.Module
             The model to train. Typically the train_fn should already capture model
             but you need to pass it to Trainer anyway for evaluation and Callbacks.
-        train_fn: function 
+        train_fn: callable 
             The function that trains the model on a single batch of examples.
             It takes the following arguments:
                 `model_to_train`: the value from self.model
@@ -285,7 +285,7 @@ class Trainer:
             to capture, typically the loss and accuracy.
         train_loader: torch.utils.data.DataLoader 
             Provides the training dataset.
-        eval_fn: function, optional
+        eval_fn: callable, optional
             Function that evaluates a single batch. See `evaluate()` for what this
             evaluation function should look like.
         val_loader: torch.utils.data.DataLoader, optional
