@@ -21,16 +21,20 @@ def predict_on_batch(model, x):
     -------
     Tensor containing the predicted probabilities.
     """
-    return model(make_var(x, volatile=True))
+    return model(make_var(x, volatile=True)).data
 
 
-def predict(model, data_loader, verbose=False):
+def predict(model, pred_fn, data_loader, verbose=False):
     """Returns the predictions for the examples in the given dataset.
 
     Parameters
     ----------
     model: nn.Module
         The model.
+    pred_fn: callable
+        Function that performs the prediction over a single batch.
+        Takes two arguments: model and x, a Tensor of inputs.
+        Returns a Tensor (not a Variable) of size (batch_size, ...) 
     data_loader: torch.utils.data.DataLoader 
         Provides the dataset.
     verbose: bool (optional)
@@ -50,15 +54,17 @@ def predict(model, data_loader, verbose=False):
         # The data loader can return inputs and targets, or just inputs.
         inputs = data[0] if type(data) is list else data
 
-        batch_pred = predict_on_batch(model, inputs)
+        batch_pred = pred_fn(model, inputs)
         batch_size = batch_pred.size(0)
 
         # Allocate the tensor that holds the predictions.
         if batch_idx == 0:
             num_samples = data_loader_sample_count(data_loader)
-            y_pred = torch.zeros(num_samples, batch_pred.size(1))
+            y_size = list(batch_pred.size())
+            y_size[0] = num_samples
+            y_pred = torch.zeros(torch.Size(y_size))
 
-        y_pred[offset:offset + batch_size, ...] = batch_pred.data
+        y_pred[offset:offset + batch_size, ...] = batch_pred
         offset += batch_size
 
         if verbose:
@@ -98,7 +104,7 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
         The computed metrics for this batch.
     """
     
-    outputs = predict_on_batch(model, x)
+    outputs = model(make_var(x, volatile=True))
     y_true = make_var(y, dtype=np.int, volatile=True)
     
     results = {}
