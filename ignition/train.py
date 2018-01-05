@@ -323,11 +323,19 @@ class Trainer:
         print_every: int (optional, default is 10)
             After how many batches to update the progress bar.
         """
-        callback_dict = {"trainer": self, "model": self.model, "hyper": self.hyper}
+        self.should_stop = False
+
+        total_epochs = self.history.epochs() + epochs
+        steps_per_epoch = len(self.train_loader)
+
+        callback_dict = {
+            "trainer": self, 
+            "model": self.model, 
+            "hyper": self.hyper, 
+            "steps_per_epoch": steps_per_epoch,
+        }
         apply_on_all(self.callbacks, "on_train_begin", callback_dict)
         
-        total_epochs = self.history.epochs() + epochs
-
         if self.verbose:
             msg = "Train epochs %d-%d on %d examples" % (self.history.epochs() + 1, total_epochs, 
                                                          data_loader_sample_count(self.train_loader, max_steps))
@@ -338,7 +346,8 @@ class Trainer:
         have_header = False
         column_names = []
         hyper_keys = list(self.hyper.keys())
-
+        iteration = 0
+        
         for epoch in range(epochs):
             callback_dict["epoch"] = self.history.epochs()
             apply_on_all(self.callbacks, "on_epoch_begin", callback_dict)
@@ -352,13 +361,15 @@ class Trainer:
             self.model.train(True)
 
             if self.verbose:
-                pbar_size = len(self.train_loader)
+                pbar_size = steps_per_epoch
                 if max_steps: pbar_size = min(max_steps, pbar_size)
                 progress_bar = ProgressBar(pbar_size)
 
             for batch_idx, data in enumerate(self.train_loader):
                 callback_dict["batch"] = batch_idx
+                callback_dict["iteration"] = iteration
                 apply_on_all(self.callbacks, "on_batch_begin", callback_dict)
+                iteration += 1
 
                 if isinstance(data, list):
                     batch_size = data[0].size(0) 
@@ -381,9 +392,12 @@ class Trainer:
                     msg = "train " + ", ".join(map(lambda x: "%s: %.5f" % x, results.items()))
                     progress_bar.update(batch_idx, msg)
 
+                for metric_name, metric_value in results.items():
+                    callback_dict["batch_" + metric_name] = metric_value
+                    
                 apply_on_all(self.callbacks, "on_batch_end", callback_dict)
 
-                if max_steps and total_steps >= max_steps:
+                if self.should_stop or (max_steps and total_steps >= max_steps):
                     break
 
             column_values = []
@@ -427,31 +441,21 @@ class Trainer:
 
             apply_on_all(self.callbacks, "on_epoch_end", callback_dict)
 
+            if self.should_stop:
+                break
+
         apply_on_all(self.callbacks, "on_train_end", callback_dict)
         
 
 class Callback():
     """Training callbacks must extend this abstract base class."""
-    def __init__(self):
-        pass
-
-    def on_train_begin(self, info_dict):
-        pass
-    
-    def on_epoch_begin(self, info_dict):
-        pass
-
-    def on_batch_begin(self, info_dict):
-        pass
-
-    def on_batch_end(self, info_dict):
-        pass
-
-    def on_epoch_end(self, info_dict):
-        pass
-
-    def on_train_end(self, info_dict):
-        pass
+    def __init__(self): pass
+    def on_train_begin(self, info_dict): pass
+    def on_epoch_begin(self, info_dict): pass
+    def on_batch_begin(self, info_dict): pass
+    def on_batch_end(self, info_dict): pass
+    def on_epoch_end(self, info_dict): pass
+    def on_train_end(self, info_dict): pass
 
     
 class SaveModel(Callback):
@@ -518,24 +522,156 @@ class LinearDecay(Callback):
     start_value: the value at epoch 0
     end_value: the value at epoch max_epochs
     max_epochs: after this many epochs, the hyperparameter will have end_value
-    optimizer: for changing the learning rate
     """
-    def __init__(self, name, start_value, end_value, max_epochs, optimizer=None):
+    def __init__(self, name, start_value, end_value, max_epochs):
         self.name = name
         self.start_value = start_value
         self.end_value = end_value
         self.max_epochs = max_epochs
-        self.optimizer = optimizer
         
     def on_epoch_begin(self, info_dict):
         new_value = self.end_value + (self.start_value - self.end_value) \
                     * (self.max_epochs - info_dict["epoch"]) / self.max_epochs
         info_dict["hyper"][self.name] = new_value
+
+            
+class LRSchedule(Callback):
+    """Wrapper around PyTorch's learning rate scheduler, which lets you
+    adjust the learning rate based on the number of epochs.
+    
+    Parameters
+    ----------
+    scheduler: torch.optim.lr_scheduler object
+    """
+    def __init__(self, scheduler):
+        self.scheduler = scheduler
         
-        if self.name == "lr" and self.optimizer:
-            set_lr(self.optimizer, new_value)
+    def on_epoch_begin(self, info_dict):
+        self.scheduler.step()
+        history = info_dict["trainer"].history
+        history.add("lr", self.scheduler.get_lr())
 
 
+class LRFinder(Callback):
+    """Increments the learning rate on every batch until the loss starts
+    increasing again. Use this to determine a good learning rate to start
+    training the model with.
+    
+    Based on code and ideas from https://github.com/fastai/fastai
+    
+    Parameters
+    ----------
+    optimizer: torch.optim object
+    start_lr: float
+        The learning rate to start with (should be quite small).
+    end_lr: float
+        The maximum learning rate to try (should be large-ish).
+    steps: int
+        How many batches to evaluate. One epoch is usually enough.
+    """
+    def __init__(self, optimizer, start_lr=1e-5, end_lr=10, steps=100):
+        self.optimizer = optimizer
+        self.steps = steps
+        self.values = np.logspace(np.log10(start_lr), np.log10(end_lr), steps)
+        
+    def on_train_begin(self, info_dict):
+        self.best_loss = 1e9
+        self.loss_history = []
+        self.lr_history = []
+
+    def on_batch_begin(self, info_dict):
+        lr = self.values[info_dict["iteration"]]
+        set_lr(self.optimizer, lr)
+        self.lr_history.append(lr)
+        
+    def on_batch_end(self, info_dict):
+        loss = info_dict["batch_loss"]
+        iteration = info_dict["iteration"]
+
+        # Note: in the last couple of batches the loss may explode,
+        # which is why we don't plot those.
+        self.loss_history.append(loss)
+        
+        if math.isnan(loss) or loss > self.best_loss*4 or iteration >= self.steps - 1:
+            info_dict["trainer"].should_stop = True
+            return
+        
+        if loss < self.best_loss and iteration > 10:
+            self.best_loss = loss
+            
+    def plot(self, figsize=(12, 8)):
+        fig = plt.figure(figsize=figsize)
+        plt.ylabel("loss", fontsize=16)
+        plt.xlabel("learning rate (log scale)", fontsize=16)
+        plt.xscale("log")
+        plt.plot(self.lr_history[10:-5], self.loss_history[10:-5])
+        plt.show()
+
+        
+class CosineAnneal(Callback):
+    """Cosine annealing for the learning rate, with restarts.
+    
+    The learning rate is varied between lr_max and lr_min over cycle_len
+    epochs.
+    
+    Note: The validation score may temporarily be worse in the first part
+    of the cycle (where the learning rate is high). This is why you should
+    always train for a round number of cycles. For example, if cycle_len=1
+    and cycle_mult=2 then train for 1, 3, 7, 15, 31 etc epochs.
+    
+    It's allowed to change the cycle_len and cycle_mult parameters before
+    the next training run, but make sure you do this after the last cycle
+    has completely finished (or else there will be abrupt changes in the LR).
+    
+    Based on the paper 'SGDR: Stochastic Gradient Descent with Warm Restarts',
+    arXiv:1608.03983 and code from https://github.com/fastai/fastai
+    
+    Parameters
+    ----------
+    optimizer: torch.optim object
+    lr_min: float
+        The lowest learning rate.
+    lr_max: float
+        The highest learning rate.
+    cycle_len: int
+        How many epochs there are in one cycle.
+    cycle_mult: int
+        After each complete cycle, the cycle_len is multiplied by this number.
+        This makes the learning rate anneal at a slower pace over time.
+    """
+    def __init__(self, optimizer, lr_min, lr_max, cycle_len, cycle_mult=1):
+        self.optimizer = optimizer
+        self.lr_min = lr_min
+        self.lr_max = lr_max
+        self.cycle_len = cycle_len
+        self.cycle_mult = cycle_mult
+        self.cycles_completed = 0
+        self.cycle_iter = 0
+        self.cycle_width = 1
+
+    def on_batch_begin(self, info_dict):
+        steps_per_epoch = info_dict["steps_per_epoch"]
+        steps = steps_per_epoch * self.cycle_len * self.cycle_width
+
+        # Use a low learning rate for the very first batches.
+        if info_dict["iteration"] < steps_per_epoch/20:
+            lr = self.lr_max / 100.
+        else:
+            lr = self.lr_min + 0.5*(self.lr_max - self.lr_min) * \
+                                   (1. + np.cos(self.cycle_iter*np.pi / steps))
+
+        set_lr(self.optimizer, lr)
+        history = info_dict["trainer"].history
+        history.add("lr", lr)
+
+        self.cycle_iter += 1
+        if self.cycle_iter >= steps:
+            self.cycle_iter = 0
+            self.cycle_width *= self.cycle_mult
+            self.cycles_completed += 1
+            # TODO: save the model here for snapshot ensembles
+            
+            
 class History():
     """Stores the history of a training session, such as the loss and other metrics.
 
@@ -571,10 +707,13 @@ class History():
             self.metrics[metric_name] = [value]
 
     def plot_loss(self, figsize=(12, 8)):
-        self._plot(*self._metrics_of_type("_loss"), figsize, "loss", "upper right")
+        self._plot(*self._metrics_of_type("_loss"), figsize, ylabel="loss", legend="upper right")
 
     def plot_accuracy(self, figsize=(12, 8)):
-        self._plot(*self._metrics_of_type("_acc"), figsize, "accuracy", "lower right")
+        self._plot(*self._metrics_of_type("_acc"), figsize, ylabel="accuracy", legend="lower right")
+
+    def plot(self, metric_name, figsize=(12, 8), xlabel=None, ylabel=None):
+        self._plot(*self._metrics_of_type(metric_name), figsize, xlabel=xlabel or "", ylabel=ylabel or metric_name)
 
     def _metrics_of_type(self, type_name):
         data = []
@@ -585,14 +724,15 @@ class History():
                 names.append(metric_name[:-len(type_name)])
         return data, names
 
-    def _plot(self, data, names, figsize, label, loc):
+    def _plot(self, data, names, figsize, xlabel="epoch", ylabel="", legend=None):
         fig = plt.figure(figsize=figsize)
         for d in data: plt.plot(d)
-        plt.ylabel(label, fontsize=16)
-        plt.xlabel("epoch", fontsize=16)
+        plt.ylabel(ylabel, fontsize=16)
+        plt.xlabel(xlabel, fontsize=16)
         plt.tick_params(axis="both", which="major", labelsize=12)
         plt.tick_params(axis="both", which="minor", labelsize=10)
-        plt.legend(names, loc=loc, fontsize=16)
+        if len(data) > 1:
+            plt.legend(names, loc=legend, fontsize=16)
 
         
 def set_lr(optimizer, lr):

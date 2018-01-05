@@ -10,3 +10,5 @@ Ignition aims to be a *minimal* framework on top of PyTorch. It's basically a ge
 
 - [Documentation](HowToUse.md)
 - [TODO list](TODO.md)
+
+Inspired by [Keras](https://keras.io) and [fastai](https://github.com/fastai/fastai), but different. ;-)
