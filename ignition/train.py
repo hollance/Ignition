@@ -115,7 +115,7 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
     return results
 
 
-def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True):
+def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True, print_every=10):
     """Computes the loss and accuracy on the given dataset in test mode.
     
     Example of how to use the evaluation function:
@@ -145,6 +145,8 @@ def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True):
         If not None, evaluate at most this many iterations.
     verbose: bool
         Whether to show a progress bar (default is True).
+    print_every: int (optional, default is 10)
+        After how many batches to update the progress bar.
     
     Returns
     -------
@@ -155,17 +157,19 @@ def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True):
 
     total_steps = 0
     total_examples = 0
-    running_loss = 0.
-    correct = 0
     results = {}
+    running_metrics = defaultdict(float)
     
+    def format_msg():
+        return ", ".join(map(lambda x: "%s: %.5f" % x, results.items()))
+
     if verbose:
         pbar_size = len(data_loader)
         if max_steps: pbar_size = min(max_steps, pbar_size)
         progress_bar = ProgressBar(pbar_size)
 
     for batch_idx, data in enumerate(data_loader):
-        if isinstance(data, list):
+        if isinstance(data, list) or isinstance(data, tuple):
             batch_size = data[0].size(0)
             results = eval_fn(model, *data)
         else:
@@ -174,28 +178,23 @@ def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True):
             
         total_steps += 1
         total_examples += batch_size
-        
-        if "loss" in results:
-            running_loss += results["loss"]
-            results["loss"] = running_loss / total_steps
 
-        # Note: because the last batch may be smaller, we can't compute the 
-        # average acc by adding up the accuracies for the batches. Instead,
-        # keep track of the number of correct and divide by total examples.
-        if "acc" in results:
-            correct += results["acc"] * batch_size
-            results["acc"] = correct / total_examples
-
-        if verbose:
-            msg = ", ".join(map(lambda x: "%s: %.5f" % x, results.items()))
-            progress_bar.update(batch_idx, msg)
+        # Note: because the last batch may be smaller, we always multiply
+        # the metrics by the batch_size again and divide by the total number
+        # of examples, not by the total number of batches.
+        for metric_name, metric_value in results.items():
+            running_metrics[metric_name] += metric_value * batch_size
+            results[metric_name] = running_metrics[metric_name] / total_examples
+            
+        if verbose and batch_idx % print_every == 0:
+            progress_bar.update(batch_idx, format_msg())
 
         if max_steps and total_steps >= max_steps:
             break
 
     if verbose:
         elapsed = time.time() - progress_bar.start_time
-        progress_bar.end("%d steps - %ds - %s" % (total_steps, elapsed, msg))
+        progress_bar.end("%d steps - %ds - %s" % (total_steps, elapsed, format_msg()))
         
     return results
 
@@ -311,7 +310,7 @@ class Trainer:
         self.hyper = {}
         self.callbacks = []
 
-    def fit(self, epochs, max_steps=None, print_every=10):
+    def fit(self, epochs, max_steps=None, max_eval_steps=None, print_every=10):
         """Trains the model.
         
         Parameters
@@ -320,6 +319,8 @@ class Trainer:
             How often to loop through the dataset.
         max_steps: int (optional)
             If not None, run each epoch for at most this many iterations.
+        max_eval_steps: int (optional)
+            If not None, run the validation for at most this many iterations.
         print_every: int (optional, default is 10)
             After how many batches to update the progress bar.
         """
@@ -354,9 +355,8 @@ class Trainer:
 
             total_steps = 0
             total_examples = 0
-            correct = 0
-            running_loss = 0.
             results = {}
+            running_metrics = defaultdict(float)
             
             self.model.train(True)
 
@@ -371,7 +371,7 @@ class Trainer:
                 apply_on_all(self.callbacks, "on_batch_begin", callback_dict)
                 iteration += 1
 
-                if isinstance(data, list):
+                if isinstance(data, list) or isinstance(data, tuple):
                     batch_size = data[0].size(0) 
                     batch_results = self.train_fn(self.model, *data, **self.hyper)
                 else:
@@ -381,12 +381,9 @@ class Trainer:
                 total_steps += 1
                 total_examples += batch_size
 
-                if "loss" in batch_results:
-                    running_loss += batch_results["loss"]
-                    results["loss"] = running_loss / total_steps
-                if "acc" in batch_results:
-                    correct += batch_results["acc"] * batch_size
-                    results["acc"] = correct / total_examples
+                for metric_name, metric_value in batch_results.items():
+                    running_metrics[metric_name] += metric_value * batch_size
+                    results[metric_name] = running_metrics[metric_name] / total_examples
 
                 if self.verbose and batch_idx % print_every == 0:
                     msg = "train " + ", ".join(map(lambda x: "%s: %.5f" % x, results.items()))
@@ -411,7 +408,8 @@ class Trainer:
                 if self.verbose: 
                     progress_bar.update(batch_idx, msg + " - evaluating... 🤖 ")
 
-                results = evaluate(self.model, self.eval_fn, self.val_loader, verbose=False)
+                results = evaluate(self.model, self.eval_fn, self.val_loader, 
+                                   max_steps=max_eval_steps, verbose=False)
                 
                 for metric_name, metric_value in results.items():
                     self.history.add("val_" + metric_name, metric_value)
@@ -429,7 +427,7 @@ class Trainer:
                 
                 if not have_header:
                     column_names = ["epoch", "steps", "time"] + column_names + hyper_keys
-                    w1 = { "epoch": 7, "time": 5, "tr loss": 8, "tr acc": 7 } 
+                    w1 = { "epoch": 7, "steps": 5, "time": 5 } 
                     w2 = dict.fromkeys(hyper_keys, 8)
                     fmt = dict.fromkeys(hyper_keys, "%.5f")
                     table = Table(column_names, widths={**w1, **w2}, formats=fmt)
@@ -689,15 +687,18 @@ class History():
         else:
             return 0
 
-    def best_epoch(self):
-        m = [ "val_acc", "val_loss", "train_acc", "train_loss" ]
-        f = [ np.argmax, np.argmin,  np.argmax,   np.argmin    ]
+    def best_epoch(self, metric_name=None, smaller_is_better=False):
+        if metric_name:
+            m = [ metric_name ]
+            f = [ np.argmin if smaller_is_better else np.argmax ]
+        else:
+            m = [ "val_acc", "val_loss", "train_acc", "train_loss" ]
+            f = [ np.argmax, np.argmin,  np.argmax,   np.argmin    ]
 
         for i, metric_name in enumerate(m):
             if metric_name in self.metrics:
                 epoch = f[i](self.metrics[metric_name])
                 return { "epoch": epoch, metric_name: self.metrics[metric_name][epoch] }
-
         return None
 
     def add(self, metric_name, value):
@@ -721,7 +722,10 @@ class History():
         for metric_name, metric_data in self.metrics.items():
             if metric_name.endswith(type_name):
                 data.append(metric_data)
-                names.append(metric_name[:-len(type_name)])
+                metric_name = metric_name[:-len(type_name)]
+                if metric_name.endswith("_"):
+                    metric_name = metric_name[:-1]
+                names.append(metric_name)
         return data, names
 
     def _plot(self, data, names, figsize, xlabel="epoch", ylabel="", legend=None):

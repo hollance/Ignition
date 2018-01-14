@@ -32,6 +32,22 @@ def make_var(x, dtype=np.float32, cuda=True, volatile=False, requires_grad=False
     return make_cuda(x) if cuda else x
 
 
+def repackage_var(x):
+    """Takes the Tensor from a Variable and wraps in a new Variable.
+    This detaches the data from its operation history, i.e. it removes the 
+    reference to the graph node that created this variable.
+    
+    This is useful for when you don't want to backprop through the old graph.
+    It allows the previous graph to go out of scope and free up the memory.
+    
+    See also https://discuss.pytorch.org/t/help-clarifying-repackage-hidden-in-word-language-model/
+    """
+    if type(x) == Variable:
+        return Variable(x.data)
+    else:
+        return tuple(repackage_var(v) for v in x)
+
+
 def to_numpy(x):
     """Converts a Variable or a Tensor into a numpy array."""
     if isinstance(x, np.ndarray): 

@@ -58,12 +58,15 @@ def label2class(y, class_names):
 
 def data_loader_sample_count(data_loader, max_steps=None):
     """How many examples the DataLoader object will iterate through."""
-    num_samples = len(data_loader.sampler)
-    if data_loader.drop_last:
-        num_samples = (num_samples // data_loader.batch_size) * data_loader.batch_size
-    if max_steps:
-        num_samples = min(num_samples, max_steps * data_loader.batch_size)
-    return num_samples
+    if isinstance(data_loader, torch.utils.data.DataLoader):
+        num_samples = len(data_loader.sampler)
+        if data_loader.drop_last:
+            num_samples = (num_samples // data_loader.batch_size) * data_loader.batch_size
+        if max_steps:
+            num_samples = min(num_samples, max_steps * data_loader.batch_size)
+        return num_samples
+    else:
+        return len(data_loader)
 
 
 class SingleTensorDataset(Dataset):

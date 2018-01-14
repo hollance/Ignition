@@ -146,7 +146,7 @@ class Table:
         if name in self.widths:
             return self.widths[name]
         else:
-            return max(len(name), 4)        
+            return max(len(name), 8)
 
 
 def print_parameter_sizes(model):
