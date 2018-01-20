@@ -81,22 +81,23 @@ def confusion_matrix(y_true, y_pred, target_names=None, figsize=(12, 12), cmap=N
 
 def plot_confusion_matrix(conf, target_names=None, figsize=(12, 12), cmap=None):
     fig, ax = plt.subplots(figsize=figsize)
+
+    sns.heatmap(conf, annot=True, annot_kws={"size": 16}, fmt="d",
+                cmap=cmap, ax=ax,
+                xticklabels=target_names if target_names else "auto",
+                yticklabels=target_names if target_names else "auto")
+
     ax.set_title("confusion matrix", fontsize=16)
-    ax.set_xticks(range(conf.shape[1]))
-    ax.set_yticks(range(conf.shape[0]))
     ax.set_xlabel("predicted label", fontsize=16)
     ax.set_ylabel("true label", fontsize=16)
-    if target_names:
-        ax.set_xticklabels(target_names, rotation=90)
-        ax.set_yticklabels(target_names)
-    plt.tick_params(axis="both", which="major", labelsize=12)
-    plt.tick_params(axis="both", which="minor", labelsize=10)     
+
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, fontsize=16)
+    ax.set_yticklabels(ax.get_yticklabels(), fontsize=16)
+
     ax.grid(False)
-    im = ax.imshow(conf, interpolation="nearest", cmap=cmap)
-    fig.colorbar(im)
     plt.show()
 
-    
+
 def plot_target_counts(y, target_names):
     """Plots a histogram of how often each class is predicted.
     
