@@ -3,8 +3,18 @@ from .data import *
 from .utils import *
 
 
-def accuracy_metric(y_pred, y_true):
+def accuracy_metric(y_pred, y_true, multi_label=False):
     """Computes the accuracy metric over a tensor with predictions.
+    
+    To compute accuracy of binary classification, y_pred should be a 1D
+    tensor of shape (num_examples, ).
+    
+    To compute accuracy of multi-class classification, y_pred should be
+    a 2D tensor of shape (num_examples, num_classes).
+    
+    To compute accuracy of multi-label classification, y_pred should be
+    a 2D tensor of shape (num_examples, num_labels) and the multi_label
+    parameter should be True.
     
     Parameters
     ----------
@@ -13,6 +23,9 @@ def accuracy_metric(y_pred, y_true):
         with one-hot encoded categories.
     y_true: Tensor or Variable
         One-dimensional tensor with ground-truth label indices.
+    multi_label: bool (optional)
+        True if this is a multi-label classification, False if it is
+        multi-class.
     
     Returns
     -------
@@ -23,7 +36,7 @@ def accuracy_metric(y_pred, y_true):
     assert(y_true.dim() == 1)
     assert(len(y_pred) == len(y_true))
     
-    if y_pred.dim() > 1:
+    if y_pred.dim() > 1 and not multi_label:
         y_pred = from_onehot(y_pred)
     if isinstance(y_pred, Variable):    
         y_pred = y_pred.data

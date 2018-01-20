@@ -15,16 +15,18 @@ def predict_on_batch(model, x):
     model: nn.Module
         The model.
     x: Tensor or numpy array
-        Must have size (batch_size, in_channels, height, width).
+        Image tensors should have size (batch_size, in_channels, height, width).
 
     Returns
     -------
     Tensor containing the predicted probabilities.
     """
-    return model(make_var(x, volatile=True)).data
+    if type(x) != Variable:
+        x = make_var(x, volatile=True)
+    return model(x).data
 
 
-def predict(model, pred_fn, data_loader, verbose=False):
+def predict(model, pred_fn, data_loader, batch_axis=0, max_steps=None, verbose=False):
     """Returns the predictions for the examples in the given dataset.
 
     Parameters
@@ -37,6 +39,10 @@ def predict(model, pred_fn, data_loader, verbose=False):
         Returns a Tensor (not a Variable) of size (batch_size, ...) 
     data_loader: torch.utils.data.DataLoader 
         Provides the dataset.
+    batch_axis: int (optional)
+        Which axis the mini-batches are on.
+    max_steps: int (optional)
+        If not None, run for at most this many iterations.
     verbose: bool (optional)
         Whether to show a progress bar (default is False)
     
@@ -46,30 +52,41 @@ def predict(model, pred_fn, data_loader, verbose=False):
     """
     model.train(False)
     offset = 0
+    total_steps = 0
     
     if verbose:
-        progress_bar = ProgressBar(len(data_loader))
+        pbar_size = len(data_loader)
+        if max_steps: pbar_size = min(max_steps, pbar_size)
+        progress_bar = ProgressBar(pbar_size)
+        num_samples = data_loader_sample_count(data_loader, max_steps)
+        print("Predict on %d examples" % num_samples)
         
     for batch_idx, data in enumerate(data_loader):
         # The data loader can return inputs and targets, or just inputs.
-        inputs = data[0] if type(data) is list else data
+        inputs = data[0] if type(data) in [list, tuple] else data
 
         batch_pred = pred_fn(model, inputs)
-        batch_size = batch_pred.size(0)
+        batch_size = batch_pred.size(batch_axis)
 
-        # Allocate the tensor that holds the predictions.
+        # Allocate the tensor that holds the predictions. We need to do this
+        # after the first batch because we don't know the full size and data
+        # type of the predictions tensor until then.
         if batch_idx == 0:
-            num_samples = data_loader_sample_count(data_loader)
             y_size = list(batch_pred.size())
-            y_size[0] = num_samples
-            y_pred = torch.zeros(torch.Size(y_size))
+            y_size[0] = min(num_samples, max_steps*batch_size) if max_steps else num_samples
+            y_pred = batch_pred.new(torch.Size(y_size))
 
         y_pred[offset:offset + batch_size, ...] = batch_pred
         offset += batch_size
 
+        total_steps += 1
+        
         if verbose:
             progress_bar.update(batch_idx)
      
+        if max_steps and total_steps >= max_steps:
+            break
+    
     if verbose:
         progress_bar.end()
 
@@ -89,7 +106,7 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
     model: nn.Module
         Needed to make the predictions.
     x: Tensor or numpy array 
-        Must have size (batch_size, in_channels, height, width)
+        Image tensors should have size (batch_size, in_channels, height, width).
     y: Tensor or numpy array 
         Contains the label indices (not one-hot encoded)
     loss_fn: optional
@@ -115,7 +132,7 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
     return results
 
 
-def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True, print_every=10):
+def evaluate(model, eval_fn, data_loader, batch_axis=0, max_steps=None, verbose=True, print_every=10):
     """Computes the loss and accuracy on the given dataset in test mode.
     
     Example of how to use the evaluation function:
@@ -141,6 +158,9 @@ def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True, print_ev
         such as the loss and accuracy.
     data_loader: torch.utils.data.DataLoader 
         Provides the dataset.
+    batch_axis: int (optional)
+        Which axis the mini-batches are on. Usually this is 0 but for language
+        data it is 1.
     max_steps: int (optional)
         If not None, evaluate at most this many iterations.
     verbose: bool
@@ -167,13 +187,15 @@ def evaluate(model, eval_fn, data_loader, max_steps=None, verbose=True, print_ev
         pbar_size = len(data_loader)
         if max_steps: pbar_size = min(max_steps, pbar_size)
         progress_bar = ProgressBar(pbar_size)
+        num_samples = data_loader_sample_count(data_loader, max_steps)
+        print("Evaluate on %d examples" % num_samples)
 
     for batch_idx, data in enumerate(data_loader):
         if isinstance(data, list) or isinstance(data, tuple):
-            batch_size = data[0].size(0)
+            batch_size = data[0].size(batch_axis)
             results = eval_fn(model, *data)
         else:
-            batch_size = data.size(0)
+            batch_size = data.size(batch_axis)
             results = eval_fn(model, data)
             
         total_steps += 1
@@ -212,7 +234,7 @@ def fit_on_batch(model, x, y, loss_fn, optimizer, metrics=["loss", "acc"]):
     model: nn.Module
         The model to train.
     x: Tensor or numpy array 
-        Must have size (batch_size, in_channels, height, width).
+        Image tensors should have size (batch_size, in_channels, height, width).
     y: Tensor or numpy array 
         Contains the label indices (not one-hot encoded).
     loss_fn: 
@@ -270,7 +292,8 @@ class Trainer:
         into the train_fn function.
     """
 
-    def __init__(self, model, train_fn, train_loader, eval_fn=None, val_loader=None, history=None, verbose=True):
+    def __init__(self, model, train_fn, train_loader, eval_fn=None, val_loader=None, 
+                 history=None, batch_axis=0, verbose=True):
         """Creates a new trainer.
         
         Parameters
@@ -297,6 +320,9 @@ class Trainer:
             Provides the validation dataset.
         history: a History object, optional
             For when you want to resume training.
+        batch_axis: int (optional)
+            Which axis the mini-batches are on. Usually this is 0 but for language
+            data it is 1.
         verbose: bool
             Whether to show a progress bar (default is True).
         """
@@ -305,8 +331,9 @@ class Trainer:
         self.train_loader = train_loader
         self.eval_fn = eval_fn
         self.val_loader = val_loader
-        self.verbose = verbose
         self.history = history if history else History()
+        self.batch_axis = batch_axis
+        self.verbose = verbose
         self.hyper = {}
         self.callbacks = []
 
@@ -341,7 +368,7 @@ class Trainer:
             msg = "Train epochs %d-%d on %d examples" % (self.history.epochs() + 1, total_epochs, 
                                                          data_loader_sample_count(self.train_loader, max_steps))
             if self.val_loader:
-                msg += ", validate on %d examples" % data_loader_sample_count(self.val_loader)
+                msg += ", validate on %d examples" % data_loader_sample_count(self.val_loader, max_eval_steps)
             print(msg)
 
         have_header = False
@@ -372,10 +399,10 @@ class Trainer:
                 iteration += 1
 
                 if isinstance(data, list) or isinstance(data, tuple):
-                    batch_size = data[0].size(0) 
+                    batch_size = data[0].size(self.batch_axis) 
                     batch_results = self.train_fn(self.model, *data, **self.hyper)
                 else:
-                    batch_size = data.size(0)                
+                    batch_size = data.size(self.batch_axis)                
                     batch_results = self.train_fn(self.model, data, **self.hyper)
 
                 total_steps += 1
@@ -409,6 +436,7 @@ class Trainer:
                     progress_bar.update(batch_idx, msg + " - evaluating... 🤖 ")
 
                 results = evaluate(self.model, self.eval_fn, self.val_loader, 
+                                   batch_axis=self.batch_axis, 
                                    max_steps=max_eval_steps, verbose=False)
                 
                 for metric_name, metric_value in results.items():
