@@ -191,8 +191,11 @@ def evaluate(model, eval_fn, data_loader, batch_axis=0, max_steps=None, verbose=
         print("Evaluate on %d examples" % num_samples)
 
     for batch_idx, data in enumerate(data_loader):
+        # The data can be: a single Tensor, a tuple of (inputs, targets),
+        # or nested tuples ((inputs, sequence_lengths), targets).
         if isinstance(data, list) or isinstance(data, tuple):
-            batch_size = data[0].size(batch_axis)
+            data_ = data[0][0] if type(data[0]) in [list, tuple] else data[0] 
+            batch_size = data_.size(batch_axis)
             results = eval_fn(model, *data)
         else:
             batch_size = data.size(batch_axis)
@@ -399,7 +402,8 @@ class Trainer:
                 iteration += 1
 
                 if isinstance(data, list) or isinstance(data, tuple):
-                    batch_size = data[0].size(self.batch_axis) 
+                    data_ = data[0][0] if type(data[0]) in [list, tuple] else data[0] 
+                    batch_size = data_.size(self.batch_axis)
                     batch_results = self.train_fn(self.model, *data, **self.hyper)
                 else:
                     batch_size = data.size(self.batch_axis)                

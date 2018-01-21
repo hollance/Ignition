@@ -165,7 +165,7 @@ def print_parameter_sizes(model):
     print("Total params: {:,}".format(total))
 
 
-def print_activation_sizes(model, input_size):
+def print_activation_sizes(model, input_size=None, input_tensor=None):
     """Prints the input and output shapes of the modules in the model.
     
     Note: this puts the model into evaluation mode, otherwise it may change the
@@ -176,7 +176,16 @@ def print_activation_sizes(model, input_size):
     sizes = []
     def grab_module_shapes(name):
         def closure(module, inp, out):
-            sizes.append((name, inp[0].size(), out.size()))
+            # TODO: If something is a tuple, should really grab all the
+            # sizes instead of just the first one.
+            i = inp
+            o = out
+            while type(i) in [list, tuple]: i = i[0]
+            while type(o) in [list, tuple]: o = o[0]
+            unknown = torch.Size([-1])
+            isize = i.size() if hasattr(i, "size") else unknown
+            osize = o.size() if hasattr(o, "size") else unknown
+            sizes.append((name, isize, osize))
         return closure    
     
     handles = []
@@ -184,7 +193,14 @@ def print_activation_sizes(model, input_size):
         handle = module.register_forward_hook(grab_module_shapes(name))
         handles.append(handle)    
 
-    inp = make_var(torch.randn(input_size), volatile=True)
+    if input_tensor is not None:
+        if type(input_tensor) in [Variable, tuple]:
+            inp = input_tensor
+        else:
+            inp = make_var(input_tensor, volatile=True)
+    else:
+        inp = make_var(torch.randn(input_size), volatile=True)
+        
     out = model(inp)
     unregister_hooks(handles)
     del inp, out, handles
