@@ -132,6 +132,13 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
     return results
 
 
+def _batch_size_of(data, batch_axis):
+    # The data can be: a single Tensor, a tuple of (inputs, targets),
+    # or nested tuples ((inputs, sequence_lengths), targets).
+    while type(data) in [list, tuple]: data = data[0]
+    return data.size(batch_axis)
+
+
 def evaluate(model, eval_fn, data_loader, batch_axis=0, max_steps=None, verbose=True, print_every=10):
     """Computes the loss and accuracy on the given dataset in test mode.
     
@@ -191,16 +198,12 @@ def evaluate(model, eval_fn, data_loader, batch_axis=0, max_steps=None, verbose=
         print("Evaluate on %d examples" % num_samples)
 
     for batch_idx, data in enumerate(data_loader):
-        # The data can be: a single Tensor, a tuple of (inputs, targets),
-        # or nested tuples ((inputs, sequence_lengths), targets).
+        batch_size = _batch_size_of(data, batch_axis)
         if isinstance(data, list) or isinstance(data, tuple):
-            data_ = data[0][0] if type(data[0]) in [list, tuple] else data[0] 
-            batch_size = data_.size(batch_axis)
             results = eval_fn(model, *data)
         else:
-            batch_size = data.size(batch_axis)
             results = eval_fn(model, data)
-            
+
         total_steps += 1
         total_examples += batch_size
 
@@ -401,12 +404,10 @@ class Trainer:
                 apply_on_all(self.callbacks, "on_batch_begin", callback_dict)
                 iteration += 1
 
+                batch_size = _batch_size_of(data, self.batch_axis)
                 if isinstance(data, list) or isinstance(data, tuple):
-                    data_ = data[0][0] if type(data[0]) in [list, tuple] else data[0] 
-                    batch_size = data_.size(self.batch_axis)
                     batch_results = self.train_fn(self.model, *data, **self.hyper)
                 else:
-                    batch_size = data.size(self.batch_axis)                
                     batch_results = self.train_fn(self.model, data, **self.hyper)
 
                 total_steps += 1
