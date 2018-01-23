@@ -510,34 +510,43 @@ class SaveModel(Callback):
         If true, then save the model whenever the val_acc improves. Suggestion:
         set this to False during early epochs, but to True during later epochs
         so that only the models with the best score are kept.
+    metric_name: string, optional (default is "val_acc")
+        The metric to use when always_save_better is True.
+    smaller_is_better: bool, optional (default is False)
+        True if a smaller value for the chosen metric means improvement.
     verbose: bool, optional (default is False)
         Print out a message when the model is saved.
     """
-    def __init__(self, filename, include_history=False, save_every=1, always_save_better=False, verbose=False):
+    def __init__(self, filename, include_history=False, save_every=1, 
+                 always_save_better=False, metric_name="val_acc", smaller_is_better=False,
+                 verbose=False):
         self.filename = filename
         self.include_history = include_history
         self.save_every = save_every
         self.epochs_since_last_save = 0
         self.always_save_better = always_save_better
-        self.best_val_acc = -np.Inf
+        self.metric_name = metric_name
+        self.smaller_is_better = smaller_is_better
+        self.best = np.Inf if smaller_is_better else -np.Inf
         self.verbose = verbose
-        
+
     def on_epoch_end(self, info_dict):
-        val_acc = info_dict.get("val_acc")
-        if val_acc and val_acc > self.best_val_acc:        
-            if self.always_save_better:
-                if self.verbose:
-                    print("😊 val_acc improved from %.4f to %.4f" % (self.best_val_acc, val_acc))
-                self.epochs_since_last_save = self.save_every  # force save
-            self.best_val_acc = val_acc
-        
+        metric = info_dict.get(self.metric_name)
+        if metric:
+            f = np.less if self.smaller_is_better else np.greater
+            if f(metric, self.best):
+                if self.always_save_better:
+                    if self.verbose:
+                        print("😊 %s improved from %.4f to %.4f" % (self.metric_name, self.best, metric))
+                    self.epochs_since_last_save = self.save_every  # force save
+                self.best = metric
+
         self.epochs_since_last_save += 1
         if self.epochs_since_last_save < self.save_every: return
         self.epochs_since_last_save = 0
 
-        metrics = { "epoch": info_dict["epoch"] + 1 }
-        if "val_loss" in info_dict: metrics["val_loss"] = info_dict["val_loss"]
-        if "val_acc" in info_dict: metrics["val_acc"] = info_dict["val_acc"]
+        metrics = dict(info_dict)
+        metrics["epoch"] += 1
         filename = self.filename.format(**metrics)
 
         if self.verbose:
