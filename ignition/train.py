@@ -439,6 +439,8 @@ class Trainer:
                 if self.verbose: 
                     progress_bar.update(batch_idx, msg + " - evaluating... 🤖 ")
 
+                apply_on_all(self.callbacks, "on_eval_begin", callback_dict)
+
                 results = evaluate(self.model, self.eval_fn, self.val_loader, 
                                    batch_axis=self.batch_axis, 
                                    max_steps=max_eval_steps, verbose=False)
@@ -448,7 +450,9 @@ class Trainer:
                     callback_dict["val_" + metric_name] = metric_value
                     column_values.append(metric_value)
                     if not have_header: column_names.append("val " + metric_name)
-                    
+
+                apply_on_all(self.callbacks, "on_eval_end", callback_dict)
+
             if self.verbose:
                 elapsed = time.time() - progress_bar.start_time
 
@@ -484,6 +488,8 @@ class Callback():
     def on_epoch_begin(self, info_dict): pass
     def on_batch_begin(self, info_dict): pass
     def on_batch_end(self, info_dict): pass
+    def on_eval_begin(self, info_dict): pass
+    def on_eval_end(self, info_dict): pass
     def on_epoch_end(self, info_dict): pass
     def on_train_end(self, info_dict): pass
 
