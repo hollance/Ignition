@@ -174,8 +174,13 @@ def trainable_parameters(net):
 def freeze_model(net):
     for p in net.parameters():
         p.requires_grad = False
-    
-    
+
+
+def unfreeze_model(net):
+    for p in net.parameters():
+        p.requires_grad = True
+
+
 def forward(model, layers, input_tensor):
     """Runs the model on the given output and captures the outputs of the
     specified layers. Useful for looking at an intermediate layer."""
