@@ -3,7 +3,7 @@ from .utils import *
 from sklearn import metrics
 
 
-def imshow(img, untransform=None, figsize=None):
+def imshow(img, untransform=None, figsize=None, cmap=None):
     if untransform:
         img = untransform(img)
 
@@ -12,7 +12,7 @@ def imshow(img, untransform=None, figsize=None):
 
     fig = plt.figure(figsize=figsize)
     plt.grid(False)
-    plt.imshow(img)
+    plt.imshow(img, cmap=cmap)
     plt.show()
 
 
