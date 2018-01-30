@@ -26,9 +26,10 @@ def make_cuda(x):
 
 def make_var(x, dtype=np.float32, cuda=True, volatile=False, requires_grad=False):
     """Converts a Tensor or numpy array into a Variable."""
-    if isinstance(x, np.ndarray): 
-        x = torch.from_numpy(x.astype(dtype))
-    x = Variable(x, volatile=volatile, requires_grad=requires_grad)
+    if type(x) != Variable:
+        if isinstance(x, np.ndarray): 
+            x = torch.from_numpy(x.astype(dtype))
+        x = Variable(x, volatile=volatile, requires_grad=requires_grad)
     return make_cuda(x) if cuda else x
 
 
