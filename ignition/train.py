@@ -129,6 +129,8 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
         results["loss"] = loss_fn(outputs, y_true).data[0]
     if "acc" in metrics:
         results["acc"] = accuracy_metric(outputs, y_true)
+    if "mse" in metrics:
+        results["mse"] = F.mse_loss(outputs, y_true).data[0]
     return results
 
 
@@ -261,7 +263,7 @@ def fit_on_batch(model, x, y, loss_fn, optimizer, metrics=["loss", "acc"]):
     outputs = model(make_var(x))
 
     # Compute loss
-    y_true = make_var(y, dtype=np.int, volatile=True)
+    y_true = make_var(y, dtype=np.int)
     loss = loss_fn(outputs, y_true)
     
     # Backward pass
@@ -274,6 +276,8 @@ def fit_on_batch(model, x, y, loss_fn, optimizer, metrics=["loss", "acc"]):
         results["loss"] = loss.data[0]
     if "acc" in metrics:
         results["acc"] = accuracy_metric(outputs, y_true)
+    if "mse" in metrics:
+        results["mse"] = F.mse_loss(outputs, y_true).data[0]
     return results
 
 
@@ -296,6 +300,8 @@ class Trainer:
     hyper: dictionary 
         Any hyperparameters that you want to modify with callbacks and pass
         into the train_fn function.
+    print_every: int (default is 10)
+        After how many batches to update the progress bar.
     """
 
     def __init__(self, model, train_fn, train_loader, eval_fn=None, val_loader=None, 
@@ -342,8 +348,9 @@ class Trainer:
         self.verbose = verbose
         self.hyper = {}
         self.callbacks = []
+        self.print_every = 10
 
-    def fit(self, epochs, max_steps=None, max_eval_steps=None, print_every=10):
+    def fit(self, epochs, max_steps=None, max_eval_steps=None):
         """Trains the model.
         
         Parameters
@@ -354,8 +361,6 @@ class Trainer:
             If not None, run each epoch for at most this many iterations.
         max_eval_steps: int (optional)
             If not None, run the validation for at most this many iterations.
-        print_every: int (optional, default is 10)
-            After how many batches to update the progress bar.
         """
         self.should_stop = False
 
@@ -417,7 +422,7 @@ class Trainer:
                     running_metrics[metric_name] += metric_value * batch_size
                     results[metric_name] = running_metrics[metric_name] / total_examples
 
-                if self.verbose and batch_idx % print_every == 0:
+                if self.verbose and batch_idx % self.print_every == 0:
                     msg = "train " + ", ".join(map(lambda x: "%s: %.5f" % x, results.items()))
                     progress_bar.update(batch_idx, msg)
 
