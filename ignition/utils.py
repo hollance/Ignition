@@ -3,7 +3,9 @@ from .imports import *
 # Helper functions for CUDA tensors and variables.
 
 def print_cuda_info():
+    print("PyTorch version:", torch.__version__)
     if torch.cuda.is_available():
+        print("CUDA version:", torch.version.cuda)
         print("cuDNN version:", torch.backends.cudnn.version())
         print("Available CUDA devices:")
         for i in range(torch.cuda.device_count()):

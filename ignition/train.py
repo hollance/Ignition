@@ -543,7 +543,7 @@ class SaveModel(Callback):
             if f(metric, self.best):
                 if self.always_save_better:
                     if self.verbose:
-                        print("😊 %s improved from %.4f to %.4f" % (self.metric_name, self.best, metric))
+                        print("😊 %s improved from %.5f to %.5f" % (self.metric_name, self.best, metric))
                     self.epochs_since_last_save = self.save_every  # force save
                 self.best = metric
 
