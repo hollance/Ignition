@@ -56,3 +56,30 @@ def accuracy_metric(y_pred, y_true, multi_label=False):
     else:
         return (y_pred == y_true).sum() / len(y_true)
 
+
+def topk_accuracy_metric(y_pred, y_true, ks=(1, 5)):
+    """Returns the top-k classification accuracy.
+    
+    Parameters
+    ----------
+    y_pred: Variable of shape (batch_size, num_classes)
+        The softmax predictions.
+    y_true: Variable of shape (batch_size, )
+        The ground-truth label indices.
+    ks: tuple of integers
+        The value(s) for k.
+    
+    Returns
+    -------
+    dict
+        Containing the accuracy for each value of k.
+    """
+    maxk = max(ks)
+    
+    _, pred = y_pred.topk(5, dim=1, largest=True, sorted=True)
+
+    targets = y_true.view(-1, 1).expand_as(pred)
+    correct = pred.eq(targets)
+
+    return {k: correct[:, :k].float().sum().data[0] / len(y_true) for k in ks}
+
