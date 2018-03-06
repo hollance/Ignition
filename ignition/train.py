@@ -485,6 +485,57 @@ class Trainer:
                 break
 
         apply_on_all(self.callbacks, "on_train_end", callback_dict)
+
+    def find_lr(self, optimizer, start_lr=1e-5, end_lr=10, steps=None):
+        """Finds the optimal learning rate for training.
+
+        Typically you'd do this on a model that has not been trained yet.
+        However, calling find_lr() on a (partially) trained model is OK too;
+        the state of the model and optimizer are preserved so that find_lr()
+        won't actually change the model's parameters.
+
+        Parameters
+        ----------
+        optimizer: torch.optim object
+        start_lr: float (optional)
+            The learning rate to start with (should be quite small).
+        end_lr: float (optional)
+            The maximum learning rate to try (should be large-ish).
+        steps: int (optional)
+            How many batches to evaluate, at most. If not specified,
+            find_lr() runs for a single epoch. As a rule of thumb, 100
+            steps seems to work well.
+        """
+        optim_state = copy.deepcopy(optimizer.state_dict())
+        model_state = copy.deepcopy(self.model.state_dict())
+        eval_fn = self.eval_fn
+        val_loader = self.val_loader
+        history = self.history
+        callbacks = self.callbacks
+
+        self.eval_fn = None
+        self.val_loader = None
+        self.history = History()
+
+        one_epoch = len(self.train_loader)
+        if steps is not None and one_epoch < steps:
+            epochs = (steps + one_epoch - 1) // one_epoch
+        else:
+            epochs = 1
+
+        print("Trying learning rates between %g and %g over %d steps (%d epochs)" % 
+              (start_lr, end_lr, steps, epochs))
+
+        self.callbacks = [ LRFinder(optimizer, start_lr, end_lr, steps) ]
+        self.fit(epochs)
+        self.callbacks[0].plot()
+
+        optimizer.load_state_dict(optim_state)
+        self.model.load_state_dict(model_state)
+        self.eval_fn = eval_fn
+        self.val_loader = val_loader
+        self.history = history
+        self.callbacks = callbacks
         
 
 class Callback():

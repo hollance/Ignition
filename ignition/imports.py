@@ -1,7 +1,7 @@
 from __future__ import print_function
 from IPython.lib.deepreload import reload as dreload
 
-import io, math, os, random, re, sys, struct, threading, time, gc
+import io, math, os, random, re, sys, struct, threading, time, gc, copy
 import PIL, pickle
 
 import numpy as np
