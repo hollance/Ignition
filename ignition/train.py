@@ -304,7 +304,8 @@ class Trainer:
         After how many batches to update the progress bar.
     """
 
-    def __init__(self, model, train_fn, train_loader, eval_fn=None, val_loader=None, 
+    def __init__(self, model, optimizer, 
+                 train_fn, train_loader, eval_fn=None, val_loader=None, 
                  history=None, batch_axis=0, verbose=True):
         """Creates a new trainer.
         
@@ -313,6 +314,7 @@ class Trainer:
         model: nn.Module
             The model to train. Typically the train_fn should already capture model
             but you need to pass it to Trainer anyway for evaluation and Callbacks.
+        optimizer: torch.optim object
         train_fn: callable 
             The function that trains the model on a single batch of examples.
             It takes the following arguments:
@@ -339,6 +341,7 @@ class Trainer:
             Whether to show a progress bar (default is True).
         """
         self.model = model
+        self.optimizer = optimizer
         self.train_fn = train_fn
         self.train_loader = train_loader
         self.eval_fn = eval_fn
@@ -370,6 +373,7 @@ class Trainer:
         callback_dict = {
             "trainer": self, 
             "model": self.model, 
+            "optimizer": self.optimizer,
             "hyper": self.hyper, 
             "steps_per_epoch": steps_per_epoch,
         }
@@ -486,7 +490,7 @@ class Trainer:
 
         apply_on_all(self.callbacks, "on_train_end", callback_dict)
 
-    def find_lr(self, optimizer, start_lr=1e-5, end_lr=10, steps=None):
+    def find_lr(self, start_lr=1e-5, end_lr=10, steps=None):
         """Finds the optimal learning rate for training.
 
         Typically you'd do this on a model that has not been trained yet.
@@ -496,7 +500,6 @@ class Trainer:
 
         Parameters
         ----------
-        optimizer: torch.optim object
         start_lr: float (optional)
             The learning rate to start with (should be quite small).
         end_lr: float (optional)
@@ -506,16 +509,7 @@ class Trainer:
             find_lr() runs for a single epoch. As a rule of thumb, 100
             steps seems to work well.
         """
-        optim_state = copy.deepcopy(optimizer.state_dict())
-        model_state = copy.deepcopy(self.model.state_dict())
-        eval_fn = self.eval_fn
-        val_loader = self.val_loader
-        history = self.history
-        callbacks = self.callbacks
-
-        self.eval_fn = None
-        self.val_loader = None
-        self.history = History()
+        state = self._save_state()
 
         one_epoch = len(self.train_loader)
         epochs = 1
@@ -527,16 +521,33 @@ class Trainer:
         print("Trying learning rates between %g and %g over %d steps (%d epochs)" %
               (start_lr, end_lr, steps, epochs))
 
-        self.callbacks = [ LRFinder(optimizer, start_lr, end_lr, steps) ]
+        self.callbacks = [ LRFinder(start_lr, end_lr, steps) ]
         self.fit(epochs)
         self.callbacks[0].plot()
+        
+        self._restore_state(state)
 
-        optimizer.load_state_dict(optim_state)
-        self.model.load_state_dict(model_state)
-        self.eval_fn = eval_fn
-        self.val_loader = val_loader
-        self.history = history
-        self.callbacks = callbacks
+    def _save_state(self):
+        state = {}
+        state["model"] = copy.deepcopy(self.model.state_dict())
+        state["optim"] = copy.deepcopy(self.optimizer.state_dict())
+        state["eval_fn"] = self.eval_fn
+        state["val_loader"] = self.val_loader
+        state["history"] = self.history
+        state["callbacks"] = self.callbacks
+
+        self.eval_fn = None
+        self.val_loader = None
+        self.history = History()
+        return state
+
+    def _restore_state(self, state):
+        self.model.load_state_dict(state["model"])
+        self.optimizer.load_state_dict(state["optim"])
+        self.eval_fn = state["eval_fn"]
+        self.val_loader = state["val_loader"]
+        self.history = state["history"]
+        self.callbacks = state["callbacks"]
         
 
 class Callback():
@@ -611,7 +622,7 @@ class SaveModel(Callback):
             print("💾 Saving model to %s" % (filename))
 
         if self.include_history:
-            save_checkpoint(filename, info_dict["trainer"], optimizer=None)
+            save_checkpoint(filename, info_dict["trainer"])
         else:
             torch.save(info_dict["model"].state_dict(), filename)
 
@@ -664,7 +675,6 @@ class LRFinder(Callback):
     
     Parameters
     ----------
-    optimizer: torch.optim object
     start_lr: float
         The learning rate to start with (should be quite small).
     end_lr: float
@@ -672,8 +682,7 @@ class LRFinder(Callback):
     steps: int
         How many batches to evaluate. One epoch is usually enough.
     """
-    def __init__(self, optimizer, start_lr=1e-5, end_lr=10, steps=100):
-        self.optimizer = optimizer
+    def __init__(self, start_lr=1e-5, end_lr=10, steps=100):
         self.steps = steps
         self.values = np.logspace(np.log10(start_lr), np.log10(end_lr), steps)
         
@@ -684,9 +693,9 @@ class LRFinder(Callback):
 
     def on_batch_begin(self, info_dict):
         lr = self.values[info_dict["iteration"]]
-        set_lr(self.optimizer, lr)
+        set_lr(info_dict["optimizer"], lr)
         self.lr_history.append(lr)
-        
+
     def on_batch_end(self, info_dict):
         loss = info_dict["batch_loss"]
         iteration = info_dict["iteration"]
@@ -731,7 +740,6 @@ class CosineAnneal(Callback):
     
     Parameters
     ----------
-    optimizer: torch.optim object
     lr_min: float
         The lowest learning rate.
     lr_max: float
@@ -742,8 +750,7 @@ class CosineAnneal(Callback):
         After each complete cycle, the cycle_len is multiplied by this number.
         This makes the learning rate anneal at a slower pace over time.
     """
-    def __init__(self, optimizer, lr_min, lr_max, cycle_len, cycle_mult=1):
-        self.optimizer = optimizer
+    def __init__(self, lr_min, lr_max, cycle_len, cycle_mult=1):
         self.lr_min = lr_min
         self.lr_max = lr_max
         self.cycle_len = cycle_len
@@ -763,7 +770,7 @@ class CosineAnneal(Callback):
             lr = self.lr_min + 0.5*(self.lr_max - self.lr_min) * \
                                    (1. + np.cos(self.cycle_iter*np.pi / steps))
 
-        set_lr(self.optimizer, lr)
+        set_lr(info_dict["optimizer"], lr)
         history = info_dict["trainer"].history
         history.add("lr", lr)
 
@@ -850,11 +857,9 @@ def set_lr(optimizer, lr):
         param_group["lr"] = lr
 
 
-def save_checkpoint(filename, trainer, optimizer):
+def save_checkpoint(filename, trainer):
     checkpoint = { "history": trainer.history,
+                   "optimizer": trainer.optimizer.state_dict(),
                    "hyper": trainer.hyper,
                    "model": trainer.model.state_dict() }
-    if optimizer:
-        checkpoint["optimizer"] = optimizer.state_dict()
-
     torch.save(checkpoint, filename)
