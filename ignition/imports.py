@@ -9,6 +9,7 @@ import pandas as pd
 
 from tqdm import *
 from collections import defaultdict
+from functools import partial
 
 import torch
 import torch.nn as nn

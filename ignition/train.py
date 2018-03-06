@@ -53,12 +53,12 @@ def predict(model, pred_fn, data_loader, batch_axis=0, max_steps=None, verbose=F
     model.train(False)
     offset = 0
     total_steps = 0
-    
+    num_samples = data_loader_sample_count(data_loader, max_steps)
+
     if verbose:
         pbar_size = len(data_loader)
         if max_steps: pbar_size = min(max_steps, pbar_size)
         progress_bar = ProgressBar(pbar_size)
-        num_samples = data_loader_sample_count(data_loader, max_steps)
         print("Predict on %d examples" % num_samples)
         
     for batch_idx, data in enumerate(data_loader):
@@ -445,7 +445,7 @@ class Trainer:
                 column_values.append(metric_value)
                 if not have_header: column_names.append("tr " + metric_name)
 
-            if self.val_loader:
+            if self.val_loader and (max_eval_steps is None or max_eval_steps > 0):
                 if self.verbose: 
                     progress_bar.update(batch_idx, msg + " - evaluating... 🤖 ")
 
@@ -509,7 +509,10 @@ class Trainer:
             find_lr() runs for a single epoch. As a rule of thumb, 100
             steps seems to work well.
         """
-        state = self._save_state()
+        self._save_state()
+        self.eval_fn = None
+        self.val_loader = None
+        self.history = History()
 
         one_epoch = len(self.train_loader)
         epochs = 1
@@ -525,30 +528,29 @@ class Trainer:
         self.fit(epochs)
         self.callbacks[0].plot()
         
-        self._restore_state(state)
+        self._restore_state()
 
     def _save_state(self):
         state = {}
         state["model"] = copy.deepcopy(self.model.state_dict())
-        state["optim"] = copy.deepcopy(self.optimizer.state_dict())
+        state["optimizer"] = copy.deepcopy(self.optimizer.state_dict())
         state["eval_fn"] = self.eval_fn
         state["val_loader"] = self.val_loader
-        state["history"] = self.history
+        state["history"] = copy.deepcopy(self.history)
         state["callbacks"] = self.callbacks
+        state["verbose"] = self.verbose
+        self._saved_state = state
 
-        self.eval_fn = None
-        self.val_loader = None
-        self.history = History()
-        return state
-
-    def _restore_state(self, state):
+    def _restore_state(self):
+        state = self._saved_state
         self.model.load_state_dict(state["model"])
-        self.optimizer.load_state_dict(state["optim"])
+        self.optimizer.load_state_dict(state["optimizer"])
         self.eval_fn = state["eval_fn"]
         self.val_loader = state["val_loader"]
         self.history = state["history"]
         self.callbacks = state["callbacks"]
-        
+        self.verbose = state["verbose"]
+
 
 class Callback():
     """Training callbacks must extend this abstract base class."""
