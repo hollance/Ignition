@@ -518,12 +518,13 @@ class Trainer:
         self.history = History()
 
         one_epoch = len(self.train_loader)
-        if steps is not None and one_epoch < steps:
+        epochs = 1
+        if steps is None:
+            steps = one_epoch
+        elif one_epoch < steps:
             epochs = (steps + one_epoch - 1) // one_epoch
-        else:
-            epochs = 1
 
-        print("Trying learning rates between %g and %g over %d steps (%d epochs)" % 
+        print("Trying learning rates between %g and %g over %d steps (%d epochs)" %
               (start_lr, end_lr, steps, epochs))
 
         self.callbacks = [ LRFinder(optimizer, start_lr, end_lr, steps) ]
