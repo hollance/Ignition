@@ -174,14 +174,24 @@ def trainable_parameters(net):
     return [p for p in net.parameters() if p.requires_grad]
 
 
-def freeze_model(net):
-    for p in net.parameters():
+def freeze_model(model):
+    for p in model.parameters():
         p.requires_grad = False
 
 
-def unfreeze_model(net):
-    for p in net.parameters():
+def unfreeze_model(model):
+    for p in model.parameters():
         p.requires_grad = True
+
+
+def freeze_until(model, param_name):
+    """Freezes the model's layers until the specified parameter object.
+    Example of param_name is 'classifier.weight'."""
+    found_name = False
+    for name, params in model.named_parameters():
+        if name == param_name:
+            found_name = True
+        params.requires_grad = found_name
 
 
 def forward(model, layers, input_tensor):
