@@ -44,7 +44,7 @@ To train a model you also need to provide a *train function*:
 
 ```python
 def train_fn(model_to_train, x, y):
-    return fit_on_batch(model, x, y, crossentropy_loss, optimizer)
+    return fit_on_batch(model_to_train, x, y, crossentropy_loss, optimizer)
 ```
 
 The train function takes at least two parameters: the model to train (an `nn.Module` object) and a batch of inputs `x`. If the `DataLoader` also provides labels (which is usually the case), then these are passed to the train function as well.
@@ -76,7 +76,7 @@ Note that here the train function does not have labels (and therefore has no `y`
 The training loop is managed by a `Trainer` object:
 
 ```python
-trainer = Trainer(model, train_fn, trainloader, eval_fn, testloader)
+trainer = Trainer(model, optimizer, train_fn, train_loader, eval_fn, test_loader)
 trainer.fit(epochs=10)
 ```
 
