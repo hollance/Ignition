@@ -2,7 +2,7 @@ from .imports import *
 from .train import *
 from .utils import *
 
-def perform_tests(trainer, tests=[]):
+def sanity_checks(trainer, tests=[]):
     """Performs a number of basic tests to catch silly mistakes, so that you
     don't waste hours training a model that is broken.
     
@@ -25,6 +25,7 @@ def perform_tests(trainer, tests=[]):
 
         trainer._save_state()
         trainer.verbose = False
+        trainer.callbacks = []
         result, msg = tests[i](trainer)
         trainer._restore_state()
 
