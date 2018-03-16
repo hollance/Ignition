@@ -389,7 +389,6 @@ class Trainer:
         have_header = False
         column_names = []
         hyper_keys = list(self.hyper.keys())
-        iteration = 0
         
         for epoch in range(epochs):
             callback_dict["epoch"] = self.history.epochs()
@@ -409,9 +408,9 @@ class Trainer:
 
             for batch_idx, data in enumerate(self.train_loader):
                 callback_dict["batch"] = batch_idx
-                callback_dict["iteration"] = iteration
+                callback_dict["iteration"] = self.history.iteration
                 apply_on_all(self.callbacks, "on_batch_begin", callback_dict)
-                iteration += 1
+                self.history.iteration += 1
 
                 batch_size = _batch_size_of(data, self.batch_axis)
                 if isinstance(data, list) or isinstance(data, tuple):
@@ -794,6 +793,7 @@ class History():
 
     def clear(self):
         self.metrics = {}
+        self.iteration = 0
 
     def epochs(self):
         if "train_loss" in self.metrics:
