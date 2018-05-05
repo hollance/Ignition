@@ -1,7 +1,8 @@
 from .imports import *
 from .data import *
 from .metrics import *
-from .summary import *
+from .progress import *
+from .table import *
 from .utils import *
 
 

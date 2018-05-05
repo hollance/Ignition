@@ -5,7 +5,9 @@ from .data import *
 from .metrics import *
 from .plots import *
 from .preprocessing import *
+from .progress import *
 from .summary import *
+from .table import *
 from .tests import *
 from .train import *
 from .utils import *
