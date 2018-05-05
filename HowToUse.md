@@ -29,11 +29,11 @@ But you can also create more complicated eval functions. For example, the follow
 
 ```python
 def eval_fn(model_to_eval, x):
-    x = make_var(x)
-    teacher_outputs = teacher.forward(x)
-    student_outputs = model_to_eval.forward(x)
-    loss = torch.mean(torch.sum(0.5 * (teacher_outputs - student_outputs)**2, dim=1))
-    return { "loss": loss.data[0] }
+    with torch.no_grad():
+        teacher_outputs = teacher.forward(x)
+        student_outputs = model_to_eval.forward(x)
+        loss = torch.mean(torch.sum(0.5 * (teacher_outputs - student_outputs)**2, dim=1))
+        return { "loss": loss.item() }
 ```
 
 Notice that here the `eval_fn` does not get labels. That's because the `DataLoader` we're using here does not return labels; instead, we use the output of the teacher as the (pseudo)labels.
@@ -58,7 +58,6 @@ optimizer = ...
 def train_fn(model_to_train, x):
     optimizer.zero_grad()
     
-    x = make_var(x)
     teacher_outputs = teacher.forward(x)
     student_outputs = model_to_train.forward(x)
 
@@ -66,7 +65,7 @@ def train_fn(model_to_train, x):
     loss.backward()
     optimizer.step()
     
-    return { "loss": loss.data[0] }    
+    return { "loss": loss.item() }    
 ```
 
 Note that here the train function does not have labels (and therefore has no `y` parameter); the outputs of the teacher network are used as the labels for the student. (In fact, the code here is similar to that in the `eval_fn`, except that we also do a backward pass and an optimizer step.)
