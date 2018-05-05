@@ -1,6 +1,6 @@
 from .imports import *
 
-# Helper functions for CUDA tensors and variables.
+# Helper functions for CUDA tensors.
 
 def print_cuda_info():
     print("PyTorch version:", torch.__version__)
@@ -18,7 +18,7 @@ def print_cuda_info():
 
 
 def is_cuda(xs):
-    """Whether the tensors/variables in the list live on the GPU."""
+    """Whether the tensors in the list live on the GPU."""
     return list(map(lambda x: x.is_cuda, xs))
 
 
@@ -26,36 +26,23 @@ def make_cuda(x):
     return x.cuda() if torch.cuda.is_available() else x
 
 
-def make_var(x, dtype=np.float32, cuda=True, volatile=False, requires_grad=False):
-    """Converts a Tensor or numpy array into a Variable."""
-    if type(x) != Variable:
-        if isinstance(x, np.ndarray): 
-            x = torch.from_numpy(x.astype(dtype))
-        x = Variable(x, volatile=volatile, requires_grad=requires_grad)
-    return make_cuda(x) if cuda else x
-
-
-def repackage_var(x):
-    """Takes the Tensor from a Variable and wraps in a new Variable.
-    This detaches the data from its operation history, i.e. it removes the 
-    reference to the graph node that created this variable.
-    
-    This is useful for when you don't want to backprop through the old graph.
-    It allows the previous graph to go out of scope and free up the memory.
-    
-    See also https://discuss.pytorch.org/t/help-clarifying-repackage-hidden-in-word-language-model/
-    """
-    if type(x) == Variable:
-        return Variable(x.data)
-    else:
-        return tuple(repackage_var(v) for v in x)
+def to_tensor(x, dtype=np.float32, requires_grad=False, cuda=True):
+    """Converts a value into a Tensor. If it is a numpy array, this uses
+    torch.from_numpy(), otherwise torch.tensor() which copies the data."""
+    if isinstance(x, np.ndarray): 
+        x = torch.from_numpy(x.astype(dtype))
+    elif type(x) != torch.Tensor:
+        x = torch.tensor(x)
+    x = make_cuda(x) if cuda else x
+    x.requires_grad_(requires_grad)
+    return x
 
 
 def to_numpy(x):
-    """Converts a Variable or a Tensor into a numpy array."""
+    """Converts a Tensor into a numpy array (if necessary)."""
     if isinstance(x, np.ndarray): 
         return x
-    if isinstance(x, Variable):
+    if isinstance(x, torch.autograd.Variable):
         x = x.data
     return x.cpu().numpy()
 
@@ -68,10 +55,11 @@ def dump_tensors(gpu_only=True):
         try:
             if torch.is_tensor(obj):
                 if not gpu_only or obj.is_cuda:
-                    print("%s:%s%s %s" % (type(obj).__name__, 
-                                          " GPU" if obj.is_cuda else "",
-                                          " pinned" if obj.is_pinned else "",
-                                          pretty_size(obj.size())))
+                    print("%s:%s%s%s %s" % (type(obj).__name__, 
+                                            " GPU" if obj.is_cuda else "",
+                                            " pinned" if obj.is_pinned else "",
+                                            " grad" if obj.requires_grad else "", 
+                                            pretty_size(obj.size())))
                     total_size += obj.numel()
             elif hasattr(obj, "data") and torch.is_tensor(obj.data):
                 if not gpu_only or obj.is_cuda:
@@ -202,7 +190,7 @@ def forward(model, layers, input_tensor):
     for layer in layers:
         handle = layer.register_forward_hook(lambda module, inp, out: outs.append(out))
         handles.append(handle)
-    output = model.forward(make_var(input_tensor, volatile=True))
+    with torch.no_grad():        
+        output = model.forward(make_cuda(input_tensor))
     unregister_hooks(handles)
     return outs
-

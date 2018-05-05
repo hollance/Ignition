@@ -31,11 +31,11 @@ def from_onehot(y):
     
     Parameters
     ----------
-    y: Tensor or Variable
-    
+    y: Tensor
+
     Returns
     -------
-    Tensor or Variable containing the label indices.
+    Tensor containing the label indices.
     """
     _, labels_pred = torch.max(y, 1)
     return labels_pred
@@ -46,7 +46,7 @@ def label2class(y, class_names):
     
     Parameters
     ----------
-    y: Tensor, Variable, or numpy array
+    y: Tensor or numpy array
     class_names: list
     
     Returns

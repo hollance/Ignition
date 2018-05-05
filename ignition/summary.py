@@ -153,7 +153,7 @@ def print_parameter_sizes(model):
     """Prints the shapes of all trainable parameters in the model."""
     model.train(False)
 
-    table = Table(["Parameter", "Size", "Count", "Train?"], widths=[30, 24, 12, 6])
+    table = Table(["Parameter", "Shape", "Count", "Train?"], widths=[30, 24, 12, 6])
     print(table.header(with_line=False))
 
     for name, params in model.named_parameters():
@@ -192,15 +192,12 @@ def print_activation_sizes(model, input_size=None, input_tensor=None):
     for name, module in model.named_children():
         handle = module.register_forward_hook(grab_module_shapes(name))
         handles.append(handle)    
-
+ 
     if input_tensor is not None:
-        if type(input_tensor) in [Variable, tuple]:
-            inp = input_tensor
-        else:
-            inp = make_var(input_tensor, volatile=True)
+        inp = make_cuda(input_tensor)
     else:
-        inp = make_var(torch.randn(input_size), volatile=True)
-        
+        inp = make_cuda(torch.randn(input_size))
+
     out = model(inp)
     unregister_hooks(handles)
     del inp, out, handles
@@ -246,9 +243,9 @@ def model_summary(m, input_size):
     m.apply(register_hook)
 
     if isinstance(input_size[0], (list, tuple)):
-        x = [make_cuda(Variable(torch.rand(1, *in_size))) for in_size in input_size]
+        x = [make_cuda(torch.rand(1, *in_size)) for in_size in input_size]
     else:
-        x = [make_cuda(Variable(torch.rand(1, *input_size)))]
+        x = [make_cuda(torch.rand(1, *input_size))]
     m(*x)
 
     for h in hooks: h.remove()
@@ -259,15 +256,15 @@ def model_summary(m, input_size):
 def plot_graph(model, input_size):
     model.train(False)
 
-    # Create a dictionary of the names for all Variable objects.
+    # Create a dictionary of the names for all parameters.
     params_dict = {}
     for name, params in model.named_parameters():
         params_dict[name] = params
     
     # Do a forward pass of the graph.
-    inp = make_var(torch.randn(input_size))
+    inp = make_cuda(torch.randn(input_size))
     out = model(inp)
-    
+
     # Create the Graphviz object.
     return make_dot(out, params_dict)
 
@@ -275,18 +272,17 @@ def plot_graph(model, input_size):
 # Based on code from https://github.com/szagoruyko/functional-zoo/blob/master/visualize.py
 from graphviz import Digraph
 
-def make_dot(var, params=None):
-    """ Produces Graphviz representation of PyTorch autograd graph
+def make_dot(output, params=None):
+    """Produces Graphviz representation of PyTorch autograd graph
 
-    Blue nodes are the Variables that require grad, orange are Tensors
+    Blue nodes are the Tensors that require grad, orange are Tensors
     saved for backward in torch.autograd.Function
 
     Args:
-        var: output Variable
-        params: dict of (name, Variable), optional
+        output: output Tensor
+        params: dict of (name, Parameter), optional
     """
     if params is not None:
-        #assert isinstance(params.values()[0], Variable)
         param_map = {id(v): k for k, v in params.items()}
 
     node_attr = dict(style='filled',
@@ -298,27 +294,27 @@ def make_dot(var, params=None):
     dot = Digraph(node_attr=node_attr, graph_attr=dict(size="12,12"))
     seen = set()
 
-    def add_nodes(var):
-        if var not in seen:
-            if torch.is_tensor(var):
-                dot.node(str(id(var)), size_to_str(var.size()), fillcolor='orange')
-            elif hasattr(var, 'variable'):
-                u = var.variable
+    def add_nodes(obj):
+        if obj not in seen:
+            if torch.is_tensor(obj):
+                dot.node(str(id(obj)), size_to_str(obj.size()), fillcolor='orange')
+            elif hasattr(obj, 'variable'):
+                u = obj.variable
                 name = param_map[id(u)] + '\n' if params is not None else ''
                 node_name = name + pretty_size(u.size())
-                dot.node(str(id(var)), node_name, fillcolor='lightblue')
+                dot.node(str(id(obj)), node_name, fillcolor='lightblue')
             else:
-                dot.node(str(id(var)), str(type(var).__name__))
-            seen.add(var)
-            if hasattr(var, 'next_functions'):
-                for u in var.next_functions:
+                dot.node(str(id(obj)), str(type(obj).__name__))
+            seen.add(obj)
+            if hasattr(obj, 'next_functions'):
+                for u in obj.next_functions:
                     if u[0] is not None:
-                        dot.edge(str(id(u[0])), str(id(var)))
+                        dot.edge(str(id(u[0])), str(id(obj)))
                         add_nodes(u[0])
-            if hasattr(var, 'saved_tensors'):
-                for t in var.saved_tensors:
-                    dot.edge(str(id(t)), str(id(var)))
+            if hasattr(obj, 'saved_tensors'):
+                for t in obj.saved_tensors:
+                    dot.edge(str(id(t)), str(id(obj)))
                     add_nodes(t)
 
-    add_nodes(var.grad_fn)
+    add_nodes(output.grad_fn)
     return dot

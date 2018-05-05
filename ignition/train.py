@@ -21,9 +21,8 @@ def predict_on_batch(model, x):
     -------
     Tensor containing the predicted probabilities.
     """
-    if type(x) != Variable:
-        x = make_var(x, volatile=True)
-    return model(x).data
+    with torch.no_grad():
+        return model(to_tensor(x))
 
 
 def predict(model, pred_fn, data_loader, batch_axis=0, max_steps=None, verbose=False):
@@ -36,7 +35,7 @@ def predict(model, pred_fn, data_loader, batch_axis=0, max_steps=None, verbose=F
     pred_fn: callable
         Function that performs the prediction over a single batch.
         Takes two arguments: model and x, a Tensor of inputs.
-        Returns a Tensor (not a Variable) of size (batch_size, ...) 
+        Returns a Tensor of size (batch_size, ...) 
     data_loader: torch.utils.data.DataLoader 
         Provides the dataset.
     batch_axis: int (optional)
@@ -121,17 +120,18 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
         The computed metrics for this batch.
     """
     
-    outputs = model(make_var(x, volatile=True))
-    y_true = make_var(y, dtype=np.int, volatile=True)
+    with torch.no_grad():
+        outputs = model(to_tensor(x))
+        y_true = to_tensor(y)
     
-    results = {}
-    if "loss" in metrics:
-        results["loss"] = loss_fn(outputs, y_true).data[0]
-    if "acc" in metrics:
-        results["acc"] = accuracy_metric(outputs, y_true)
-    if "mse" in metrics:
-        results["mse"] = F.mse_loss(outputs, y_true).data[0]
-    return results
+        results = {}
+        if "loss" in metrics:
+            results["loss"] = loss_fn(outputs, y_true).item()
+        if "acc" in metrics:
+            results["acc"] = accuracy_metric(outputs, y_true)
+        if "mse" in metrics:
+            results["mse"] = F.mse_loss(outputs, y_true).item()
+        return results
 
 
 def _batch_size_of(data, batch_axis):
@@ -260,10 +260,10 @@ def fit_on_batch(model, x, y, loss_fn, optimizer, metrics=["loss", "acc"]):
     optimizer.zero_grad()
 
     # Forward pass
-    outputs = model(make_var(x))
+    outputs = model(to_tensor(x))
 
     # Compute loss
-    y_true = make_var(y, dtype=np.int)
+    y_true = to_tensor(y, dtype=np.int)
     loss = loss_fn(outputs, y_true)
     
     # Backward pass
@@ -273,11 +273,11 @@ def fit_on_batch(model, x, y, loss_fn, optimizer, metrics=["loss", "acc"]):
     # Additional metrics
     results = {}
     if "loss" in metrics:
-        results["loss"] = loss.data[0]
+        results["loss"] = loss.item()
     if "acc" in metrics:
         results["acc"] = accuracy_metric(outputs, y_true)
     if "mse" in metrics:
-        results["mse"] = F.mse_loss(outputs, y_true).data[0]
+        results["mse"] = F.mse_loss(outputs, y_true).item()
     return results
 
 

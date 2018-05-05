@@ -23,9 +23,9 @@ def accuracy_metric(y_pred, y_true, multi_label=False):
 
     Parameters
     ----------
-    y_pred: Tensor or Variable
+    y_pred: Tensor
         The predicted label indices or one-hot encoded categories.
-    y_true: Tensor or Variable
+    y_true: Tensor
         The ground-truth label indices.
     multi_label: bool (optional)
         True if this is a multi-label classification, False if it is
@@ -46,15 +46,10 @@ def accuracy_metric(y_pred, y_true, multi_label=False):
             assert(y_true.dim() == 1)
             y_pred = from_onehot(y_pred)
 
-    if isinstance(y_pred, Variable):    
-        y_pred = y_pred.data
-    if isinstance(y_true, Variable):    
-        y_true = y_true.data       
-
     if multi_label:
         return np.mean(np.all(y_pred == y_true, axis=1))
     else:
-        return (y_pred == y_true).sum() / len(y_true)
+        return (y_pred == y_true).sum().item() / len(y_true)
 
 
 def topk_accuracy_metric(y_pred, y_true, ks=(1, 5)):
@@ -62,9 +57,9 @@ def topk_accuracy_metric(y_pred, y_true, ks=(1, 5)):
     
     Parameters
     ----------
-    y_pred: Variable of shape (batch_size, num_classes)
+    y_pred: Tensor of shape (batch_size, num_classes)
         The softmax predictions.
-    y_true: Variable of shape (batch_size, )
+    y_true: Tensor of shape (batch_size, )
         The ground-truth label indices.
     ks: tuple of integers
         The value(s) for k.
@@ -81,5 +76,4 @@ def topk_accuracy_metric(y_pred, y_true, ks=(1, 5)):
     targets = y_true.view(-1, 1).expand_as(pred)
     correct = pred.eq(targets)
 
-    return {k: correct[:, :k].float().sum().data[0] / len(y_true) for k in ks}
-
+    return {k: correct[:, :k].float().sum().item() / len(y_true) for k in ks}

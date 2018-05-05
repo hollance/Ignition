@@ -55,7 +55,7 @@ def test_trainable_parameters_changed(trainer):
     for name, new_param in trainer.model.named_parameters():
         if new_param.requires_grad:
             old_param = trainer._saved_state["model"][name]
-            if not (new_param.data != old_param).any():
+            if not (new_param != old_param).any():
                 msg += "    expected changes in: %s\n" % name
                 passed = False
 
@@ -73,7 +73,7 @@ def test_frozen_parameters_not_changed(trainer):
     for name, new_param in trainer.model.named_parameters():
         if not new_param.requires_grad:
             old_param = trainer._saved_state["model"][name]
-            if not (new_param.data == old_param).all():
+            if not (new_param == old_param).all():
                 msg += "    expected no changes in: %s\n" % name
                 passed = False
 
