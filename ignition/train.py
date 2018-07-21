@@ -6,6 +6,13 @@ from .table import *
 from .utils import *
 
 
+def _batch_size_of(data, batch_axis):
+    # The data can be: a single Tensor, a tuple of (inputs, targets),
+    # or nested tuples ((inputs, sequence_lengths), targets).
+    while type(data) in [list, tuple]: data = data[0]
+    return data.size(batch_axis)
+
+
 def predict_on_batch(model, x):
     """Returns the predictions for a single batch of examples.
     
@@ -130,16 +137,11 @@ def evaluate_on_batch(model, x, y, loss_fn=None, metrics=["loss", "acc"]):
             results["loss"] = loss_fn(outputs, y_true).item()
         if "acc" in metrics:
             results["acc"] = accuracy_metric(outputs, y_true)
+        if "top5" in metrics:
+            results["top5"] = topk_accuracy_metric(outputs, y_true, ks=(5, ))[5]
         if "mse" in metrics:
             results["mse"] = F.mse_loss(outputs, y_true).item()
         return results
-
-
-def _batch_size_of(data, batch_axis):
-    # The data can be: a single Tensor, a tuple of (inputs, targets),
-    # or nested tuples ((inputs, sequence_lengths), targets).
-    while type(data) in [list, tuple]: data = data[0]
-    return data.size(batch_axis)
 
 
 def evaluate(model, eval_fn, data_loader, batch_axis=0, max_steps=None, verbose=True, print_every=10):
