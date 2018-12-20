@@ -47,9 +47,9 @@ def print_activation_sizes(model, input_size=None, input_tensor=None):
         handles.append(handle)    
  
     if input_tensor is not None:
-        inp = make_cuda(input_tensor)
+        inp = input_tensor.to(gpu)
     else:
-        inp = make_cuda(torch.randn(input_size))
+        inp = torch.randn(input_size, device=gpu)
 
     out = model(inp)
     unregister_hooks(handles)
@@ -96,9 +96,9 @@ def model_summary(m, input_size):
     m.apply(register_hook)
 
     if isinstance(input_size[0], (list, tuple)):
-        x = [make_cuda(torch.rand(1, *in_size)) for in_size in input_size]
+        x = [torch.rand(1, *in_size, device=gpu) for in_size in input_size]
     else:
-        x = [make_cuda(torch.rand(1, *input_size))]
+        x = [torch.rand(1, *input_size, device=gpu)]
     m(*x)
 
     for h in hooks: h.remove()
@@ -115,7 +115,7 @@ def plot_graph(model, input_size):
         params_dict[name] = params
     
     # Do a forward pass of the graph.
-    inp = make_cuda(torch.randn(input_size))
+    inp = torch.randn(input_size, device=gpu)
     out = model(inp)
 
     # Create the Graphviz object.

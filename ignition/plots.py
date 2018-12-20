@@ -75,7 +75,7 @@ def print_top5(predictions, target_names):
 
 
 def confusion_matrix(y_true, y_pred, target_names=None, figsize=(12, 12), cmap=None):
-    conf = metrics.confusion_matrix(y_true, y_pred)
+    conf = metrics.confusion_matrix(y_true, to_numpy(y_pred))
     plot_confusion_matrix(conf, target_names, figsize, cmap)
 
 
@@ -114,7 +114,7 @@ def plot_target_counts(y, target_names):
 
     
 def precision_recall(y_true, y_pred, target_names=None):
-    print(metrics.classification_report(y_true, y_pred, target_names=target_names))    
+    print(metrics.classification_report(y_true, to_numpy(y_pred), target_names=target_names))    
     
     
 def _plot_images_with_probabilities(idxs, probs, labels, dataset, classes, nrows, untransform=None):

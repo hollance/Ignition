@@ -2,6 +2,8 @@ from .imports import *
 
 # Helper functions for CUDA tensors.
 
+gpu = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 def print_cuda_info():
     print("PyTorch version:", torch.__version__)
     if torch.cuda.is_available():
@@ -22,18 +24,14 @@ def is_cuda(xs):
     return list(map(lambda x: x.is_cuda, xs))
 
 
-def make_cuda(x):
-    return x.cuda() if torch.cuda.is_available() else x
-
-
-def to_tensor(x, dtype=np.float32, requires_grad=False, cuda=True):
+def to_tensor(x, dtype=np.float32, requires_grad=False, device=gpu):
     """Converts a value into a Tensor. If it is a numpy array, this uses
     torch.from_numpy(), otherwise torch.tensor() which copies the data."""
     if isinstance(x, np.ndarray): 
         x = torch.from_numpy(x.astype(dtype))
     elif type(x) != torch.Tensor:
         x = torch.tensor(x)
-    x = make_cuda(x) if cuda else x
+    x = x.to(device)
     x.requires_grad_(requires_grad)
     return x
 
@@ -49,30 +47,35 @@ def to_numpy(x):
 
 def dump_tensors(gpu_only=True):
     """Prints a list of the Tensors being tracked by the garbage collector."""
-    import gc
+    import gc, warnings
     total_size = 0
-    for obj in gc.get_objects():
-        try:
-            if torch.is_tensor(obj):
-                if not gpu_only or obj.is_cuda:
-                    print("%s:%s%s%s %s" % (type(obj).__name__, 
-                                            " GPU" if obj.is_cuda else "",
-                                            " pinned" if obj.is_pinned else "",
-                                            " grad" if obj.requires_grad else "", 
-                                            pretty_size(obj.size())))
-                    total_size += obj.numel()
-            elif hasattr(obj, "data") and torch.is_tensor(obj.data):
-                if not gpu_only or obj.is_cuda:
-                    print("%s → %s:%s%s%s%s %s" % (type(obj).__name__, 
-                                                   type(obj.data).__name__, 
-                                                   " GPU" if obj.is_cuda else "",
-                                                   " pinned" if obj.data.is_pinned else "",
-                                                   " grad" if obj.requires_grad else "", 
-                                                   " volatile" if obj.volatile else "",
-                                                   pretty_size(obj.data.size())))
-                    total_size += obj.data.numel()
-        except Exception as e:
-            pass        
+
+    # Deprecated objects may give warnings when we use torch.is_tensor().
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        for obj in gc.get_objects():
+            try:
+                if torch.is_tensor(obj):
+                    if not gpu_only or obj.is_cuda:
+                        print("%s:%s%s%s %s" % (type(obj).__name__, 
+                                                " GPU" if obj.is_cuda else "",
+                                                " pinned" if obj.is_pinned else "",
+                                                " grad" if obj.requires_grad else "", 
+                                                pretty_size(obj.size())))
+                        total_size += obj.numel()
+                elif hasattr(obj, "data") and torch.is_tensor(obj.data):
+                    if not gpu_only or obj.is_cuda:
+                        print("%s → %s:%s%s%s%s %s" % (type(obj).__name__, 
+                                                       type(obj.data).__name__, 
+                                                       " GPU" if obj.is_cuda else "",
+                                                       " pinned" if obj.data.is_pinned else "",
+                                                       " grad" if obj.requires_grad else "", 
+                                                       " volatile" if obj.volatile else "",
+                                                       pretty_size(obj.data.size())))
+                        total_size += obj.data.numel()
+            except Exception as e:
+                pass        
     print("Total size:", total_size)
 
 
@@ -191,6 +194,6 @@ def forward(model, layers, input_tensor):
         handle = layer.register_forward_hook(lambda module, inp, out: outs.append(out))
         handles.append(handle)
     with torch.no_grad():        
-        output = model.forward(make_cuda(input_tensor))
+        output = model.forward(input_tensor.to(gpu))
     unregister_hooks(handles)
     return outs
